@@ -19,6 +19,7 @@ import java.util.List;
 @RequestMapping("/api/carbon")
 @CrossOrigin(origins = "http://localhost:3000") // Best practice: Specify the frontend URL
 public class CarbonController {
+	
 
     @Autowired
     private CarbonCalculatorService calculatorService;

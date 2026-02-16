@@ -5,15 +5,15 @@ import com.example.demo.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.password.NoOpPasswordEncoder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -33,56 +33,104 @@ public class SecurityConfig {
     @Autowired
     private UserService userService;
 
+    // ==============================
+    // 1️⃣ SECURITY FILTER CHAIN
+    // ==============================
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
         http
-            .csrf(AbstractHttpConfigurer::disable) // 1. Disable CSRF (Critical for POST requests)
-            .cors(cors -> cors.configurationSource(corsConfigurationSource())) // 2. Enable CORS with the config below
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**", "/api/products/**").permitAll() // 3. Allow Public Access to Auth & Shop
-                .anyRequest().authenticated() // 4. Protect everything else
+            // Disable CSRF (JWT is stateless)
+            .csrf(csrf -> csrf.disable())
+
+            // Enable CORS (browser-safe)
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
+            // Stateless session (JWT)
+            .sessionManagement(session ->
+                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             )
-            .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // 5. No Sessions (JWT is stateless)
+
+            // Authorization rules
+            .authorizeHttpRequests(auth -> auth
+                // Allow preflight requests
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                // Public endpoints
+                .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/products/**").permitAll()
+
+                // Everything else requires JWT
+                .anyRequest().authenticated()
+            )
+
+            // Authentication provider
             .authenticationProvider(authenticationProvider())
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class); // 6. Add JWT Filter
+
+            // JWT filter before username/password filter
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
-    // --- UPDATED: "Allow All" CORS Configuration ---
+    // ==============================
+    // 2️⃣ CORS CONFIGURATION
+    // ==============================
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        
-        // ALLOW EVERYTHING: This fixes issues where 'localhost' doesn't match '127.0.0.1' or network IPs
-        configuration.setAllowedOriginPatterns(List.of("*")); 
-        
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS")); // Allow all actions
-        configuration.setAllowedHeaders(List.of("*")); // Allow all headers
-        configuration.setAllowCredentials(true); // Allow cookies/tokens
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration); // Apply to ALL paths
+        CorsConfiguration config = new CorsConfiguration();
+
+        // FRONTEND ORIGIN (DO NOT USE "*")
+        config.setAllowedOrigins(List.of("http://localhost:3000"));
+
+        config.setAllowedMethods(List.of(
+                "GET", "POST", "PUT", "DELETE", "OPTIONS"
+        ));
+
+        config.setAllowedHeaders(List.of("*"));
+
+        // Allow Authorization header (JWT)
+        config.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source =
+                new UrlBasedCorsConfigurationSource();
+
+        source.registerCorsConfiguration("/**", config);
+
         return source;
     }
 
+    // ==============================
+    // 3️⃣ AUTH PROVIDER
+    // ==============================
     @Bean
     public AuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
+
+        DaoAuthenticationProvider provider =
+                new DaoAuthenticationProvider();
+
         provider.setUserDetailsService(userService);
         provider.setPasswordEncoder(passwordEncoder());
+
         return provider;
     }
 
+    // ==============================
+    // 4️⃣ PASSWORD ENCODER
+    // ==============================
     @Bean
     public PasswordEncoder passwordEncoder() {
-        // returning NoOpPasswordEncoder for simplicity (plain text passwords)
-        // In a real app, use BCryptPasswordEncoder
-        return NoOpPasswordEncoder.getInstance();
+        return new BCryptPasswordEncoder();
     }
 
+    // ==============================
+    // 5️⃣ AUTH MANAGER
+    // ==============================
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+    public AuthenticationManager authenticationManager(
+            AuthenticationConfiguration config
+    ) throws Exception {
         return config.getAuthenticationManager();
     }
 }
